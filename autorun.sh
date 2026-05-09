@@ -1,15 +1,17 @@
 #!/bin/sh
 set -eu
 
-# config
-# mount usb in /tmp/ to ensure its writablle
+# ===================== config =====================
+# Mount USB somewhere always-writable (even if / is still RO)
 USB_MNT="/tmp/usb"
 
 # Files expected on USB
 ANIM_USB="$USB_MNT/anim.bgra"
 START_USB="$USB_MNT/starting.bgra"
-HIT_USB="$USB_MNT/hit.bgra"
+HIT_USB="$USB_MNT/hit1.bgra"
+RETRY_USB="$USB_MNT/hit2.bgra"
 BEEP_USB="$USB_MNT/beep.u8.pcm"
+BEEP2_USB="$USB_MNT/beep2.u8.pcm"
 
 # Install location (persistent)
 INSTALL_DIR="/init/efad/mp_sd/standby"
@@ -83,12 +85,16 @@ write_standby_runtime() {
   # Copy assets into persistent storage
   cp -f "$ANIM_USB" "$INSTALL_DIR/anim.bgra"
   cp -f "$START_USB" "$INSTALL_DIR/starting.bgra"
-  [ -f "$HIT_USB" ] && cp -f "$HIT_USB" "$INSTALL_DIR/hit.bgra" || true
+  [ -f "$HIT_USB" ] && cp -f "$HIT_USB" "$INSTALL_DIR/hit1.bgra" || true
+  [ -f "$RETRY_USB" ] && cp -f "$RETRY_USB" "$INSTALL_DIR/hit2.bgra" || true
   [ -f "$BEEP_USB" ] && cp -f "$BEEP_USB" "$INSTALL_DIR/beep.u8.pcm" || true
+  [ -f "$BEEP2_USB" ] && cp -f "$BEEP2_USB" "$INSTALL_DIR/beep2.u8.pcm" || true
 
   chmod 0644 "$INSTALL_DIR/anim.bgra" "$INSTALL_DIR/starting.bgra" 2>/dev/null || true
   chmod 0644 "$INSTALL_DIR/hit.bgra" 2>/dev/null || true
+  chmod 0644 "$INSTALL_DIR/hit2.bgra" 2>/dev/null || true
   chmod 0644 "$INSTALL_DIR/beep.u8.pcm" 2>/dev/null || true
+  chmod 0644 "$INSTALL_DIR/beep2.u8.pcm" 2>/dev/null || true
 
   write_file "$STANDBY_SH" <<'EOF'
 #!/bin/sh
@@ -97,8 +103,10 @@ set -eu
 INSTALL_DIR="/init/efad/mp_sd/standby"
 ANIM="$INSTALL_DIR/anim.bgra"
 STARTING="$INSTALL_DIR/starting.bgra"
-HIT="$INSTALL_DIR/hit.bgra"
+HIT="$INSTALL_DIR/hit1.bgra"
+RETRY="$INSTALL_DIR/hit2.bgra"
 BEEP="$INSTALL_DIR/beep.u8.pcm"
+BEEP2="$INSTALL_DIR/beep2.u8.pcm"
 
 # Disable framebuffer blanking
 if [ -w /sys/class/graphics/fb0/blank ]; then
@@ -117,10 +125,10 @@ BC_BAUD="115200"
 NFC_DEV="/dev/ttymxc3"
 NFC_BAUD="115200"
 
-HIT_SECONDS=2
+HIT_SECONDS=1
 LOCK="/tmp/hit_lock"
 
-WARMUP_SECONDS=10
+WARMUP_SECONDS=5
 PRIME_WAIT_SECONDS=10
 NX_RUN_SECONDS=20
 
@@ -139,20 +147,34 @@ check_bgra() {
   echo "$FRAMES"
 }
 
-play_beep() {
+play_beep1() {
   [ -f "$BEEP" ] || return 0
   command -v aplay >/dev/null 2>&1 || return 0
-  aplay -q -D default -f U8 -r 8000 -c 1 "$BEEP" 2>/dev/null \
-    || aplay -q -f U8 -r 8000 -c 1 "$BEEP" 2>/dev/null \
+  aplay -q -D default -f U8 -r 47000 -c 1 "$BEEP" 2>/dev/null \
+    || aplay -q -f U8 -r 47000 -c 1 "$BEEP" 2>/dev/null \
+    || true
+}
+
+play_beep2() {
+  [ -f "$BEEP2" ] || return 0
+  command -v aplay >/dev/null 2>&1 || return 0
+  aplay -q -D default -f U8 -r 48000 -c 1 "$BEEP2" 2>/dev/null \
+    || aplay -q -f U8 -r 48000 -c 1 "$BEEP2" 2>/dev/null \
     || true
 }
 
 show_hit() {
+  RANDOM=$(date +%s)
   [ -f "$HIT" ] || return 0
   : > "$LOCK"
   log "HIT: show + beep"
-  dd if="$HIT" of=/dev/fb0 bs=$FRAME count=1 2>/dev/null || true
-  play_beep
+  if [ "$RANDOM" -gt 30000 ]; then
+    dd if="$RETRY" of=/dev/fb0 bs=$FRAME count=1 2>/dev/null || true
+    play_beep2
+  else
+    dd if="$HIT" of=/dev/fb0 bs=$FRAME count=1 2>/dev/null || true
+    play_beep1
+  fi
   sleep "$HIT_SECONDS"
   rm -f "$LOCK"
 }
@@ -316,6 +338,7 @@ ANIM_FRAMES=$(check_bgra "$ANIM_USB")
 log "Starting frames: $START_FRAMES"
 log "Animation frames: $ANIM_FRAMES"
 
+# Make FS writable for service install (ok if it fails, but usually needed)
 remount_rw || true
 
 write_standby_runtime
