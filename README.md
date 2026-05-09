@@ -1,4 +1,4 @@
-# trimet OMNY standby emulator  
+# MTA OMNY standby emulator  
 *(for init proxmobil3 transit card readers)*
 > This repo is forked from Jaryn's HOP Fastpass reader emulator. Props to them for the original code, i did next to nothing script-wise!
 > I am aware that OMNY uses cubic readers, this is merely a rehash of the designs to fit on the INIT PM3's 800x480 screen.
@@ -47,6 +47,7 @@ if you don’t know how to recover one of these units, **don’t run this**.
 - triggers **hit animation + beep** on:
   - barcode scans
   - nfc taps
+- randomly displays "try again" message on occasion to simulate bad reads
 - prevents the display from going blank during idle operation
 
 ---
